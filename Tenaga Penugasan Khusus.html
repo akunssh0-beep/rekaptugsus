@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Rekap Absensi Khusus v2 - Puskesmas Sampanahan</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body { font-family: 'Inter', sans-serif; }
+
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white !important; }
+            .print-area { 
+                box-shadow: none !important; 
+                margin: 0 !important; 
+                padding: 0 !important; 
+                width: 100% !important;
+            }
+            @page { size: A4; margin: 1cm; }
+        }
+
+        .document-canvas {
+            width: 210mm;
+            min-height: 297mm;
+            background: white;
+            padding: 1.5cm 2cm;
+            margin: 0 auto;
+            box-shadow: 0 0 50px rgba(0,0,0,0.1);
+            position: relative;
+        }
+
+        table { border-collapse: collapse; width: 100%; border: 1.5px solid black; }
+        th, td { border: 1px solid black; padding: 6px 10px; font-size: 10pt; }
+        th { background-color: #f1f5f9; font-weight: bold; text-align: center; }
+
+        .hidden-preview { display: none; }
+        
+        /* Custom Scrollbar */
+        #staffList::-webkit-scrollbar { width: 6px; }
+        #staffList::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        /* Loader Overlay */
+        #loader-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(255,255,255,0.8);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+
+    <div id="loader-overlay">
+        <div class="animate-spin rounded-full h-12 w-12 border-4 border-indigo-600 border-t-transparent"></div>
+        <p class="mt-4 font-bold text-indigo-900">Menyusun Data Rekap...</p>
+    </div>
+
+    <div id="setup-view" class="no-print max-w-5xl mx-auto py-10 px-6">
+        <div class="bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
+            <div class="bg-indigo-700 p-8 text-white relative">
+                <div class="relative z-10 flex justify-between items-center">
+                    <div>
+                        <h1 class="text-3xl font-extrabold tracking-tight">Panel Rekap Absensi</h1>
+                        <p class="text-indigo-100 mt-2 opacity-80">UPTD Puskesmas Sampanahan • Penugasan Khusus</p>
+                    </div>
+                    <div class="flex gap-2">
+                         <button onclick="exportData()" class="bg-white/10 hover:bg-white/20 p-2 rounded-lg transition-all" title="Backup Data Pegawai">
+                            <i data-lucide="save" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="absolute right-0 top-0 p-8 opacity-10">
+                    <i data-lucide="stethoscope" class="w-32 h-32"></i>
+                </div>
+            </div>
+
+            <div class="p-8 space-y-8">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex items-center gap-4">
+                        <div class="bg-indigo-100 p-3 rounded-xl text-indigo-600">
+                            <i data-lucide="users" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-bold text-slate-500 uppercase">Total Pegawai</p>
+                            <p id="stat-staff" class="text-xl font-black text-slate-800">0</p>
+                        </div>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex items-center gap-4">
+                        <div class="bg-emerald-100 p-3 rounded-xl text-emerald-600">
+                            <i data-lucide="calendar" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-bold text-slate-500 uppercase">Hari Kerja</p>
+                            <p id="stat-days" class="text-xl font-black text-slate-800">0</p>
+                        </div>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex items-center gap-4">
+                        <div class="bg-amber-100 p-3 rounded-xl text-amber-600">
+                            <i data-lucide="alert-circle" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-bold text-slate-500 uppercase">Libur Nasional (Tgl)</p>
+                            <input type="text" id="holidayInput" placeholder="Contoh: 1, 10, 17" class="text-sm font-bold bg-transparent outline-none border-b border-amber-300 w-full focus:border-amber-600" oninput="updateStats()">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div class="space-y-4 lg:col-span-1">
+                        <div class="p-5 bg-indigo-50 rounded-2xl border border-indigo-100">
+                            <h3 class="text-indigo-900 font-bold mb-4 flex items-center gap-2">
+                                <i data-lucide="settings" class="w-4 h-4"></i> Info Dasar
+                            </h3>
+                            <label class="block mb-3">
+                                <span class="text-[10px] font-bold text-indigo-600 uppercase">Periode</span>
+                                <input type="month" id="monthInput" class="mt-1 block w-full px-4 py-2 bg-white border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" onchange="updateStats()">
+                            </label>
+                            <label class="block">
+                                <span class="text-[10px] font-bold text-indigo-600 uppercase">Unit Kerja</span>
+                                <input type="text" id="pkInput" value="SAMPANAHAN" class="mt-1 block w-full px-4 py-2 bg-white border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 uppercase">
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="lg:col-span-2 space-y-4">
+                        <div class="flex justify-between items-center">
+                            <h3 class="font-bold text-slate-800 flex items-center gap-2">
+                                <i data-lucide="users" class="w-5 h-5 text-indigo-600"></i> Daftar Pegawai Non-ASN
+                            </h3>
+                            <div class="flex gap-2">
+                                <button onclick="importDataTrigger()" class="text-slate-600 hover:text-indigo-600 flex items-center gap-1 text-xs font-bold transition-all">
+                                    <i data-lucide="upload-cloud" class="w-3 h-3"></i> Impor
+                                </button>
+                                <button onclick="addStaff()" class="bg-indigo-600 text-white hover:bg-indigo-700 flex items-center gap-1 text-xs font-bold px-4 py-1.5 rounded-full transition-all shadow-lg shadow-indigo-100">
+                                    <i data-lucide="plus" class="w-3 h-3"></i> Tambah Pegawai
+                                </button>
+                            </div>
+                        </div>
+                        <input type="file" id="importFile" class="hidden" accept=".json" onchange="importData(event)">
+                        <div id="staffList" class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-64 overflow-y-auto pr-2">
+                            </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-slate-100">
+                    <div class="p-5 bg-slate-50 rounded-2xl border border-slate-200">
+                        <span class="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-3">Mengetahui (Bidang SDK)</span>
+                        <input type="text" id="s1Name" value="Akhmad Saleh, S.Farm., Apt" class="w-full mb-2 p-2.5 text-sm rounded-xl border border-slate-300">
+                        <input type="text" id="s1Nip" value="198505282010011005" class="w-full p-2.5 text-sm rounded-xl border border-slate-300">
+                    </div>
+                    <div class="p-5 bg-slate-50 rounded-2xl border border-slate-200">
+                        <span class="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-3">Kepala Puskesmas</span>
+                        <input type="text" id="s2Name" placeholder="Nama Kepala" value="Suko Harianto, S.Kep., Ns" class="w-full mb-2 p-2.5 text-sm rounded-xl border border-slate-300">
+                        <input type="text" id="s2Nip" placeholder="NIP" value="197604121997031004" class="w-full p-2.5 text-sm rounded-xl border border-slate-300">
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap gap-4">
+                    <button onclick="showPreview()" class="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-indigo-700 shadow-xl shadow-indigo-200 transition-all active:scale-95">
+                        <i data-lucide="file-text"></i> Generate Dokumen Rekap
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="preview-view" class="hidden-preview pb-20 pt-10 px-4">
+        <div class="no-print max-w-4xl mx-auto mb-6 flex flex-wrap gap-4 justify-between items-center bg-white p-4 rounded-2xl shadow-lg border border-slate-200">
+            <button onclick="hidePreview()" class="flex items-center gap-2 text-slate-600 hover:text-indigo-600 font-bold transition-all">
+                <i data-lucide="chevron-left" class="w-5 h-5"></i> Kembali
+            </button>
+            <div class="flex gap-2">
+                <button onclick="downloadExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-emerald-700 transition-all">
+                    <i data-lucide="sheet" class="w-4 h-4"></i> Excel
+                </button>
+                <button onclick="window.print()" class="bg-slate-800 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-black transition-all">
+                    <i data-lucide="printer" class="w-4 h-4"></i> Cetak A4
+                </button>
+            </div>
+        </div>
+
+        <div class="print-area document-canvas">
+            <div class="text-right leading-tight mb-8 text-[10pt]">
+                Lampiran I<br>
+                Nomor : 800.1/ 1728 / SDK.DINKES<br>
+                Hal : Penerapan absen elektronik bagi<br>
+                Tenaga penugasan khusus (non ASN)
+            </div>
+
+            <div class="text-center font-bold text-[12pt] mb-8 uppercase leading-tight">
+                REKAP ABSENSI PENUGASAN KHUSUS (NON ASN)<br>
+                UPTD PUSKESMAS <span id="docPk">..........</span><br>
+                BULAN : <span id="docMonth">..........</span><br>
+                TAHUN <span id="docYear">2026</span>
+            </div>
+
+            <table id="mainTable">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">No.</th>
+                        <th>NAMA PEGAWAI</th>
+                        <th style="width: 120px;">TANGGAL</th>
+                        <th style="width: 160px;">JAM ABSEN</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+
+            <div class="mt-12 flex justify-between gap-12 text-[11pt]">
+                <div class="w-1/2 text-center">
+                    Mengetahui,<br>Kepala Bidang SDK
+                    <div class="h-24"></div>
+                    <strong id="docS1Name" class="underline">Akhmad Saleh, S.Farm., Apt</strong><br>
+                    NIP. <span id="docS1Nip">198505282010011005</span>
+                </div>
+                <div class="w-1/2 text-center">
+                    Menyetujui,<br>Kepala UPTD Puskesmas <span id="docPkSmall">......</span>
+                    <div class="h-24"></div>
+                    <strong id="docS2Name" class="underline">........................</strong><br>
+                    NIP. <span id="docS2Nip">....................</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let staffList = [{ id: Date.now(), name: '' }];
+
+        window.onload = () => {
+            lucide.createIcons();
+            const now = new Date();
+            document.getElementById('monthInput').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            
+            // Load dari LocalStorage jika ada
+            const saved = localStorage.getItem('sampanahan_staff');
+            if(saved) {
+                staffList = JSON.parse(saved);
+            }
+            renderStaffList();
+            updateStats();
+        };
+
+        function addStaff() {
+            staffList.push({ id: Date.now(), name: '' });
+            renderStaffList();
+            updateStats();
+        }
+
+        function removeStaff(id) {
+            if (staffList.length > 1) {
+                staffList = staffList.filter(s => s.id !== id);
+                saveData();
+                renderStaffList();
+                updateStats();
+            }
+        }
+
+        function renderStaffList() {
+            const container = document.getElementById('staffList');
+            container.innerHTML = staffList.map((s, idx) => `
+                <div class="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200">
+                    <input type="text" value="${s.name}" 
+                        oninput="updateStaffName(${s.id}, this.value)"
+                        placeholder="Nama Pegawai"
+                        class="flex-1 px-3 py-1.5 text-sm bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500 uppercase">
+                    <button onclick="removeStaff(${s.id})" class="text-slate-400 hover:text-red-500 transition-colors">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        function updateStaffName(id, val) {
+            const idx = staffList.findIndex(s => s.id === id);
+            staffList[idx].name = val.toUpperCase();
+            saveData();
+            updateStats();
+        }
+
+        function updateStats() {
+            const activeStaffCount = staffList.filter(s => s.name.trim() !== "").length;
+            document.getElementById('stat-staff').innerText = activeStaffCount;
+
+            const monthVal = document.getElementById('monthInput').value;
+            if(monthVal) {
+                const [year, month] = monthVal.split('-').map(Number);
+                const lastDay = new Date(year, month, 0).getDate();
+                const holidays = document.getElementById('holidayInput').value.split(',').map(h => parseInt(h.trim()));
+                
+                let workDays = 0;
+                for (let d = 1; d <= lastDay; d++) {
+                    const dt = new Date(year, month-1, d);
+                    const dayName = dt.getDay();
+                    if (dayName !== 0 && dayName !== 6 && !holidays.includes(d)) {
+                        workDays++;
+                    }
+                }
+                document.getElementById('stat-days').innerText = workDays;
+            }
+        }
+
+        function saveData() {
+            localStorage.setItem('sampanahan_staff', JSON.stringify(staffList));
+        }
+
+        function importDataTrigger() { document.getElementById('importFile').click(); }
+
+        function importData(e) {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                staffList = JSON.parse(event.target.result);
+                renderStaffList();
+                saveData();
+                updateStats();
+            };
+            reader.readAsText(file);
+        }
+
+        function exportData() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(staffList));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "data_pegawai_sampanahan.json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        }
+
+        function getRandomTime(startH, endH, startM, endM) {
+            const h = Math.floor(Math.random() * (endH - startH + 1)) + startH;
+            const m = Math.floor(Math.random() * (endM - startM + 1)) + startM;
+            return `${String(h).padStart(2, '0')}.${String(m).padStart(2, '0')}`;
+        }
+
+        async function showPreview() {
+            const monthVal = document.getElementById('monthInput').value;
+            const pk = document.getElementById('pkInput').value.toUpperCase();
+            const activeStaff = staffList.filter(s => s.name.trim() !== "");
+            const holidays = document.getElementById('holidayInput').value.split(',').map(h => parseInt(h.trim()));
+
+            if (!monthVal || activeStaff.length === 0) {
+                alert("Lengkapi data periode dan nama pegawai!");
+                return;
+            }
+
+            // Tampilkan Loader
+            const loader = document.getElementById('loader-overlay');
+            loader.style.display = 'flex';
+
+            // Beri jeda kecil agar UI terupdate
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            const [year, month] = monthVal.split('-').map(Number);
+            document.getElementById('docMonth').innerText = new Date(year, month-1).toLocaleString('id-ID', {month:'long'}).toUpperCase();
+            document.getElementById('docYear').innerText = year;
+            document.getElementById('docPk').innerText = pk;
+            document.getElementById('docPkSmall').innerText = pk;
+            document.getElementById('docS1Name').innerText = document.getElementById('s1Name').value;
+            document.getElementById('docS1Nip').innerText = document.getElementById('s1Nip').value;
+            document.getElementById('docS2Name').innerText = document.getElementById('s2Name').value;
+            document.getElementById('docS2Nip').innerText = document.getElementById('s2Nip').value;
+
+            const tableBody = document.getElementById('tableBody');
+            tableBody.innerHTML = '';
+            const lastDay = new Date(year, month, 0).getDate();
+            let counter = 1;
+
+            activeStaff.forEach(person => {
+                for (let d = 1; d <= lastDay; d++) {
+                    const dt = new Date(year, month-1, d);
+                    const dayName = dt.getDay();
+                    
+                    // Skip Sabtu, Minggu, dan Libur Nasional
+                    if (dayName === 0 || dayName === 6 || holidays.includes(d)) continue;
+
+                    let tIn, tOut;
+                    if (dayName === 5) { // Jumat
+                        tIn = getRandomTime(7, 7, 15, 45);
+                        tOut = getRandomTime(11, 11, 30, 55);
+                    } else {
+                        tIn = getRandomTime(7, 7, 15, 45);
+                        tOut = getRandomTime(16, 17, 0, 15);
+                    }
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td class="text-center">${counter++}</td>
+                        <td>${person.name.toUpperCase()}</td>
+                        <td class="text-center">${String(d).padStart(2,'0')}-${String(month).padStart(2,'0')}-${year}</td>
+                        <td class="text-center font-mono">${tIn} - ${tOut}</td>
+                    `;
+                    tableBody.appendChild(tr);
+                }
+            });
+
+            loader.style.display = 'none';
+            document.getElementById('setup-view').classList.add('hidden-preview');
+            document.getElementById('preview-view').classList.remove('hidden-preview');
+            window.scrollTo(0,0);
+        }
+
+        function hidePreview() {
+            document.getElementById('setup-view').classList.remove('hidden-preview');
+            document.getElementById('preview-view').classList.add('hidden-preview');
+        }
+
+        function downloadExcel() {
+            const table = document.getElementById("mainTable");
+            const html = table.outerHTML;
+            const blob = new Blob(['\ufeff' + html], { type: "application/vnd.ms-excel" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `Rekap_Absen_${document.getElementById('docMonth').innerText}.xls`;
+            a.click();
+        }
+    </script>
+</body>
+</html>
