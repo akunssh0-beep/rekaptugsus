@@ -21,6 +21,8 @@
                 width: 100% !important;
             }
             @page { size: A4; margin: 1cm; }
+            /* Menyembunyikan teks jam saja saat cetak jika mode sembunyikan aktif */
+            .hide-time-text .time-text { display: none !important; }
         }
 
         .document-canvas {
@@ -55,6 +57,9 @@
             justify-content: center;
             flex-direction: column;
         }
+
+        /* Sembunyikan teks jam di layar preview jika checkbox tidak aktif */
+        .hide-time-text .time-text { display: none; }
     </style>
 </head>
 <body class="bg-slate-100 min-h-screen">
@@ -175,9 +180,16 @@
 
     <div id="preview-view" class="hidden-preview pb-20 pt-10 px-4">
         <div class="no-print max-w-4xl mx-auto mb-6 flex flex-wrap gap-4 justify-between items-center bg-white p-4 rounded-2xl shadow-lg border border-slate-200">
-            <button onclick="hidePreview()" class="flex items-center gap-2 text-slate-600 hover:text-indigo-600 font-bold transition-all">
-                <i data-lucide="chevron-left" class="w-5 h-5"></i> Kembali
-            </button>
+            <div class="flex gap-4 items-center">
+                <button onclick="hidePreview()" class="flex items-center gap-2 text-slate-600 hover:text-indigo-600 font-bold transition-all">
+                    <i data-lucide="chevron-left" class="w-5 h-5"></i> Kembali
+                </button>
+                <div class="h-6 w-[1px] bg-slate-200"></div>
+                <label class="flex items-center gap-2 cursor-pointer group">
+                    <input type="checkbox" id="toggleTime" checked onchange="toggleTimeColumn()" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
+                    <span class="text-sm font-semibold text-slate-700 group-hover:text-indigo-600">Tampilkan Jam Absen</span>
+                </label>
+            </div>
             <div class="flex gap-2">
                 <button onclick="downloadExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-emerald-700 transition-all">
                     <i data-lucide="sheet" class="w-4 h-4"></i> Excel
@@ -188,7 +200,7 @@
             </div>
         </div>
 
-        <div class="print-area document-canvas">
+        <div id="printContainer" class="print-area document-canvas">
             <div class="text-right leading-tight mb-8 text-[10pt]">
                 Lampiran I<br>
                 Nomor : 800.1/ 1728 / SDK.DINKES<br>
@@ -209,13 +221,18 @@
                         <th style="width: 40px;">No.</th>
                         <th>NAMA PEGAWAI</th>
                         <th style="width: 120px;">TANGGAL</th>
-                        <th style="width: 160px;">JAM ABSEN</th>
+                        <th style="width: 140px;">JAM ABSEN</th>
+                        <th style="width: 100px;">KETERANGAN</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody"></tbody>
             </table>
 
-            <div class="mt-12 flex justify-between gap-12 text-[11pt]">
+            <div class="mt-2 italic text-[9pt]">
+                * Rekapan ini di record dari absensi mesin.
+            </div>
+
+            <div class="mt-10 flex justify-between gap-12 text-[11pt]">
                 <div class="w-1/2 text-center">
                     Mengetahui,<br>Kepala Bidang SDK
                     <div class="h-24"></div>
@@ -343,6 +360,17 @@
             return `${String(h).padStart(2, '0')}.${String(m).padStart(2, '0')}`;
         }
 
+        // Fungsi toggle untuk menyembunyikan/menampilkan teks jam secara otomatis
+        function toggleTimeColumn() {
+            const isChecked = document.getElementById('toggleTime').checked;
+            const container = document.getElementById('printContainer');
+            if (isChecked) {
+                container.classList.remove('hide-time-text');
+            } else {
+                container.classList.add('hide-time-text');
+            }
+        }
+
         async function showPreview() {
             const monthVal = document.getElementById('monthInput').value;
             const pk = document.getElementById('pkInput').value.toUpperCase();
@@ -354,11 +382,9 @@
                 return;
             }
 
-            // Tampilkan Loader
             const loader = document.getElementById('loader-overlay');
             loader.style.display = 'flex';
 
-            // Beri jeda kecil agar UI terupdate
             await new Promise(resolve => setTimeout(resolve, 500));
 
             const [year, month] = monthVal.split('-').map(Number);
@@ -381,7 +407,6 @@
                     const dt = new Date(year, month-1, d);
                     const dayName = dt.getDay();
                     
-                    // Skip Sabtu, Minggu, dan Libur Nasional
                     if (dayName === 0 || dayName === 6 || holidays.includes(d)) continue;
 
                     let tIn, tOut;
@@ -398,11 +423,15 @@
                         <td class="text-center">${counter++}</td>
                         <td>${person.name.toUpperCase()}</td>
                         <td class="text-center">${String(d).padStart(2,'0')}-${String(month).padStart(2,'0')}-${year}</td>
-                        <td class="text-center font-mono">${tIn} - ${tOut}</td>
+                        <td class="text-center font-mono"><span class="time-text">${tIn} - ${tOut}</span></td>
+                        <td class="text-center">Hadir</td>
                     `;
                     tableBody.appendChild(tr);
                 }
             });
+
+            // Jalankan toggle untuk menyesuaikan tampilan saat pertama kali generate
+            toggleTimeColumn();
 
             loader.style.display = 'none';
             document.getElementById('setup-view').classList.add('hidden-preview');
@@ -416,8 +445,16 @@
         }
 
         function downloadExcel() {
-            const table = document.getElementById("mainTable");
-            const html = table.outerHTML;
+            const originalTable = document.getElementById("mainTable");
+            const clonedTable = originalTable.cloneNode(true);
+            
+            const isTimeVisible = document.getElementById('toggleTime').checked;
+            if (!isTimeVisible) {
+                const timeTexts = clonedTable.querySelectorAll('.time-text');
+                timeTexts.forEach(span => span.innerText = ""); 
+            }
+
+            const html = clonedTable.outerHTML;
             const blob = new Blob(['\ufeff' + html], { type: "application/vnd.ms-excel" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
